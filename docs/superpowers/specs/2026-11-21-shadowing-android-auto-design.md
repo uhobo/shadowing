@@ -22,6 +22,7 @@ Commuting by car offers 30–90 minutes of private daily vocal practice time, bu
 3. **Zero-Fail Hardware Escape Hatch via USB Android Auto:** Bind steering-wheel media buttons (`Next`, `Previous`, `Play/Pause`) and the Android Auto dashboard media card via AndroidX Media3 (`MediaLibraryService`), eliminating the fragility of voice commands in noisy car cabins.
 4. **Threshold Gating & Adaptive Word Micro-Drills:** Block automatic progression until the user meets their configurable accuracy threshold (e.g., 80%). Automatically isolate words mispronounced across consecutive attempts into a slowed-down (0.65x) single-word drill before returning to the full sentence.
 5. **Phase 1 Content Ingestion:** Support pasted text, public web article URLs, and local digital books/documents (TXT, EPUB, PDF) segmented into practice-sized sentences with persistent reading position.
+6. **Non-Driving On-Screen Synchronized Word Highlighting:** When the user is practicing outside the car (or parked) and looking at the phone screen, display the active sentence and **bold the currently spoken word in real-time sync** with TTS audio playback.
 
 ### Non-Goals (MVP / Phase 1)
 - **Custom Voice Command / Wake-Word Spotting:** Replaced entirely by physical steering-wheel media controls and Android Auto transport buttons.
@@ -120,8 +121,10 @@ flowchart TB
      - `title`: The active sentence text (or `"Drill: [word]"` during micro-drills).
      - `artist`: Current status and last score (e.g., `"Listening... (Goal: 80%)"` or `"Score: 71% — Retry: thoroughly"`).
 
-2. **`TtsController` & Earcon Feedback:**
+2. **`TtsController` & Real-Time Word Sync + Earcon Feedback:**
    - Wraps Android's native `TextToSpeech` engine (`Locale.US` default, configurable speech rate `0.5x–1.5x`).
+   - Implements `UtteranceProgressListener.onRangeStart(utteranceId, start, end, frame)` (API 26+) to emit the real-time character range (`start..end`) of the word currently being spoken by the TTS engine.
+   - The Jetpack Compose phone UI subscribes to this range via `StateFlow` and renders the active sentence as an `AnnotatedString`, **dynamically bolding the currently spoken word** in sync with the audio playback (with a fallback word-timing estimator if a device's custom TTS engine omits `onRangeStart` callbacks).
    - Plays distinct, brief audio earcons (`ToneGenerator` / synthesized PCM chimes over `USAGE_MEDIA`) so the driver always knows the state eyes-free:
      - **Ready-to-Listen Earcon:** Short rising double-tone right after TTS finishes—signals the mic is open.
      - **Captured Earcon:** Soft single click when speech ends and evaluation begins.
@@ -228,6 +231,7 @@ stateDiagram-v2
 - **Hands-Free Controls:** Steering-wheel media buttons (`Next`, `Previous`, `Play/Pause`) and Android Auto dashboard media transport controls replace custom voice commands completely.
 - **Audio & Scoring Architecture:** Approach A — AndroidX Media3 playback over USB Android Auto + phone wideband microphone (`VOICE_RECOGNITION` 16 kHz) + Azure AI Speech Pronunciation Assessment.
 - **Core Learning Mechanics:** Configurable threshold gating, spoken feedback identifying mispronounced words, and automatic slow-speed micro-drilling on repeatedly mispronounced words.
+- **On-Screen Non-Driving Mode:** Displays the current sentence on the phone screen and **bolds each word in real-time sync** as TTS speaks it (`UtteranceProgressListener.onRangeStart`).
 - **Content Scope:** Phase 1 covers Pasted Text, Public Web URLs, and Local Files (TXT, EPUB, PDF); Intranet sites are deferred to Phase 2.
 
 ### Builder Calls (Default Decisions You Can Override)
