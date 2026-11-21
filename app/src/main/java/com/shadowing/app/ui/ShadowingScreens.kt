@@ -221,6 +221,15 @@ fun PracticeDrivingScreen(
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            val isAzureLive = !settings.useMockEvaluator && settings.azureApiKey.isNotBlank()
+            val normalizedRegion = com.shadowing.app.evaluation.AzurePronunciationProtocol.normalizeRegion(settings.azureRegion)
+            Text(
+                text = if (isAzureLive) "🟢 Azure AI Speech Active ($normalizedRegion)" else "🟡 Offline Demo Mode (Enable Azure in Settings)",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = if (isAzureLive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = uiState.documentTitle.ifBlank { "Driving Shadowing Coach" },
                 style = MaterialTheme.typography.titleMedium,
@@ -570,6 +579,10 @@ fun SettingsScreen(
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
+            val verifyScope = rememberCoroutineScope()
+            var verifyStatus by remember { mutableStateOf("") }
+            var isVerifying by remember { mutableStateOf(false) }
+
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Azure AI Speech Pronunciation Assessment", fontWeight = FontWeight.SemiBold)
                 Row(
@@ -587,7 +600,10 @@ fun SettingsScreen(
                 }
                 OutlinedTextField(
                     value = settings.azureApiKey,
-                    onValueChange = { key -> onUpdateSettings { it.copy(azureApiKey = key) } },
+                    onValueChange = { key ->
+                        verifyStatus = ""
+                        onUpdateSettings { it.copy(azureApiKey = key) }
+                    },
                     label = { Text("Azure Speech Subscription Key") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
@@ -595,11 +611,50 @@ fun SettingsScreen(
                 )
                 OutlinedTextField(
                     value = settings.azureRegion,
-                    onValueChange = { reg -> onUpdateSettings { it.copy(azureRegion = reg) } },
+                    onValueChange = { reg ->
+                        verifyStatus = ""
+                        onUpdateSettings { it.copy(azureRegion = reg) }
+                    },
                     label = { Text("Azure Region (e.g., eastus, westeurope)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Button(
+                    onClick = {
+                        isVerifying = true
+                        verifyStatus = "Testing connection to Azure..."
+                        verifyScope.launch {
+                            val result = ShadowingAppContainer.evaluator.verifyCredentials(
+                                apiKey = settings.azureApiKey,
+                                rawRegion = settings.azureRegion
+                            )
+                            isVerifying = false
+                            result.onSuccess { msg ->
+                                verifyStatus = "✅ $msg (Azure Live Scoring Enabled)"
+                                onUpdateSettings {
+                                    it.copy(
+                                        useMockEvaluator = false,
+                                        azureRegion = com.shadowing.app.evaluation.AzurePronunciationProtocol.normalizeRegion(settings.azureRegion)
+                                    )
+                                }
+                            }.onFailure { err ->
+                                verifyStatus = "❌ Connection failed: ${err.message}"
+                            }
+                        }
+                    },
+                    enabled = !isVerifying,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isVerifying) "Checking Azure Key..." else "🔌 Test Azure API Key & Activate")
+                }
+                if (verifyStatus.isNotBlank()) {
+                    Text(
+                        text = verifyStatus,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (verifyStatus.startsWith("✅")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
 

@@ -50,6 +50,8 @@ object ShadowingAppContainer {
         private set
     lateinit var ttsController: TtsController
         private set
+    lateinit var evaluator: AzurePronunciationEvaluator
+        private set
     lateinit var engine: ShadowingEngine
         private set
 
@@ -68,7 +70,7 @@ object ShadowingAppContainer {
             ingestor = DocumentIngestor(appContext, httpClient)
             ttsController = TtsController(appContext)
             val recorder = PhoneMicRecorder()
-            val evaluator = AzurePronunciationEvaluator(httpClient) {
+            evaluator = AzurePronunciationEvaluator(httpClient) {
                 settingsRepository.settingsFlow.value
             }
             engine = ShadowingEngine(

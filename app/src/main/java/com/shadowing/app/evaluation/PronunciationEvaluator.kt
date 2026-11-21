@@ -93,6 +93,9 @@ object AzurePronunciationProtocol {
         return Base64.getEncoder().encodeToString(payload.toByteArray(Charsets.UTF_8))
     }
 
+    fun normalizeRegion(rawRegion: String): String =
+        rawRegion.trim().lowercase().replace(Regex("\\s+"), "").ifEmpty { "eastus" }
+
     fun parseResponseJson(jsonString: String): PronunciationResult {
         val parsed = json.decodeFromString<AzureSpeechResponse>(jsonString)
         val best = parsed.nBest.firstOrNull()
@@ -145,7 +148,7 @@ class AzurePronunciationEvaluator(
                 throw IllegalStateException("Azure Speech API key is required when Demo Scorer is disabled")
             }
 
-            val region = settings.azureRegion.trim().ifEmpty { "eastus" }
+            val region = AzurePronunciationProtocol.normalizeRegion(settings.azureRegion)
             val url = "https://$region.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed"
             val assessmentHeader = AzurePronunciationProtocol.buildHeaderBase64(referenceText)
             val requestBody = wavBytes.toRequestBody("audio/wav; codecs=audio/pcm; samplerate=16000".toMediaType())
@@ -160,6 +163,28 @@ class AzurePronunciationEvaluator(
 
             val bodyString = executeCancellable(httpClient.newCall(request))
             AzurePronunciationProtocol.parseResponseJson(bodyString)
+        }
+    }
+
+    suspend fun verifyCredentials(apiKey: String, rawRegion: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val cleanKey = apiKey.trim()
+            if (cleanKey.isEmpty()) {
+                throw IllegalArgumentException("API Key is empty. Paste KEY 1 from Azure Portal.")
+            }
+            val region = AzurePronunciationProtocol.normalizeRegion(rawRegion)
+            val url = "https://$region.api.cognitive.microsoft.com/sts/v1.0/issueToken"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Ocp-Apim-Subscription-Key", cleanKey)
+                .post(ByteArray(0).toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+                .build()
+
+            val token = executeCancellable(httpClient.newCall(request))
+            if (token.isBlank()) {
+                throw IOException("Empty token response from Azure ($region)")
+            }
+            "Azure Key Verified for region '$region'!"
         }
     }
 

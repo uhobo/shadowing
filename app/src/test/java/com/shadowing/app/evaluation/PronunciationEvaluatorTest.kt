@@ -75,4 +75,11 @@ class PronunciationEvaluatorTest {
         val res = evaluator.evaluate(ByteArray(44), "Hello world.")
         assertTrue("Expected failure when Demo mode is off and Azure key is blank", res.isFailure)
     }
+
+    @Test
+    fun test_normalizeAzureRegion_stripsSpacesAndLowercasesDisplayNames() {
+        assertEquals("westeurope", AzurePronunciationProtocol.normalizeRegion("West Europe"))
+        assertEquals("eastus2", AzurePronunciationProtocol.normalizeRegion(" East US 2 "))
+        assertEquals("eastus", AzurePronunciationProtocol.normalizeRegion("   "))
+    }
 }
