@@ -56,7 +56,7 @@ class DocumentIngestor(
                 .map { it.text().trim() }
                 .filter { it.length > 20 }
                 .joinToString("\n")
-                .ifBlank { doc.body()?.text().orEmpty() }
+                .ifBlank { doc.body().text() }
 
             IngestedDocument(
                 title = pageTitle,
@@ -151,7 +151,7 @@ class DocumentIngestor(
                     val htmlBytes = entries[fullEntryPath] ?: entries[href] ?: return@mapNotNull null
                     val chapterDoc = Jsoup.parse(ByteArrayInputStream(htmlBytes), "UTF-8", "")
                     chapterDoc.select("script, style").remove()
-                    chapterDoc.body()?.text()?.trim()?.takeIf { it.isNotEmpty() }
+                    chapterDoc.body().text().trim().takeIf { it.isNotEmpty() }
                 }
 
                 if (chapterTexts.isNotEmpty()) {
@@ -166,7 +166,7 @@ class DocumentIngestor(
                 .mapNotNull { (_, bytes) ->
                     val doc = Jsoup.parse(ByteArrayInputStream(bytes), "UTF-8", "")
                     doc.select("script, style").remove()
-                    doc.body()?.text()?.trim()?.takeIf { it.isNotEmpty() }
+                    doc.body().text().trim().takeIf { it.isNotEmpty() }
                 }
                 .joinToString("\n\n")
         }
