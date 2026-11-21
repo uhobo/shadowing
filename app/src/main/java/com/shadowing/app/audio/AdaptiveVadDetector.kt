@@ -91,8 +91,11 @@ class AdaptiveVadDetector(
     }
 
     fun getCapturedPcm(): ShortArray {
-        val result = ShortArray(capturedSamples.size)
-        for (i in capturedSamples.indices) {
+        val keepTrailingSamples = (sampleRate * 160) / 1000 // Keep at most 160ms of trailing silence
+        val excessSilence = (trailingSilenceSamples - keepTrailingSamples).coerceAtLeast(0L).toInt()
+        val finalSize = (capturedSamples.size - excessSilence).coerceAtLeast(0)
+        val result = ShortArray(finalSize)
+        for (i in 0 until finalSize) {
             result[i] = capturedSamples[i]
         }
         return result

@@ -20,13 +20,16 @@ import com.shadowing.app.audio.PhoneMicRecorder
 import com.shadowing.app.content.DocumentIngestor
 import com.shadowing.app.data.SettingsRepository
 import com.shadowing.app.data.ShadowingDatabase
+import com.shadowing.app.domain.model.EnginePhase
 import com.shadowing.app.domain.model.ShadowingAction
 import com.shadowing.app.engine.ShadowingEngine
 import com.shadowing.app.evaluation.AzurePronunciationEvaluator
 import com.shadowing.app.tts.TtsController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -94,6 +97,21 @@ object ShadowingAppContainer {
             initialized = true
         }
     }
+
+    fun selectAndStartDocument(docId: Long) {
+        appScope.launch {
+            val docs = database.documentsFlow.value.ifEmpty { database.refreshDocuments() }
+            val doc = docs.firstOrNull { it.id == docId } ?: return@launch
+            val sentences = database.getSentencesForDocument(doc.id)
+            engine.loadSession(
+                documentId = doc.id,
+                title = doc.title,
+                sentences = sentences,
+                startIndex = doc.currentSentenceIndex
+            )
+            engine.dispatch(ShadowingAction.StartOrResume)
+        }
+    }
 }
 
 @UnstableApi
@@ -102,20 +120,22 @@ class ShadowingMediaLibraryService : MediaLibraryService() {
     private lateinit var player: ShadowingSessionPlayer
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var uiCollectorJob: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // Google Maps / Waze turn prompt started -> abort mic capture & pause
                 ShadowingAppContainer.engine.dispatch(ShadowingAction.GpsAudioFocusLost)
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
+                hasAudioFocus = false
                 ShadowingAppContainer.engine.dispatch(ShadowingAction.Pause)
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                // Navigation prompt finished -> replay current sentence cleanly
+                hasAudioFocus = true
                 ShadowingAppContainer.engine.dispatch(ShadowingAction.GpsAudioFocusRegained)
             }
         }
@@ -125,49 +145,81 @@ class ShadowingMediaLibraryService : MediaLibraryService() {
         super.onCreate()
         ShadowingAppContainer.ensureInitialized(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        requestCarAudioFocus()
 
-        player = ShadowingSessionPlayer(Looper.getMainLooper(), ShadowingAppContainer.engine)
+        player = ShadowingSessionPlayer(
+            looper = Looper.getMainLooper(),
+            engine = ShadowingAppContainer.engine,
+            onSelectDocumentFromCar = { docId ->
+                ShadowingAppContainer.selectAndStartDocument(docId)
+            }
+        )
         mediaLibrarySession = MediaLibrarySession.Builder(
             this,
             player,
             LibrarySessionCallback()
         ).build()
 
-        ShadowingAppContainer.appScope.launch {
-            ShadowingAppContainer.engine.uiState.collect {
-                mainHandler.post {
-                    player.notifyEngineStateChanged()
+        uiCollectorJob = ShadowingAppContainer.appScope.launch {
+            ShadowingAppContainer.engine.uiState
+                .distinctUntilChanged { old, new ->
+                    val oldActive = old.phase != EnginePhase.IDLE && old.phase != EnginePhase.PAUSED
+                    val newActive = new.phase != EnginePhase.IDLE && new.phase != EnginePhase.PAUSED
+                    oldActive == newActive &&
+                        ShadowingCarMetadataMapper.toDisplayTitle(old) == ShadowingCarMetadataMapper.toDisplayTitle(new) &&
+                        ShadowingCarMetadataMapper.toDisplaySubtitle(old) == ShadowingCarMetadataMapper.toDisplaySubtitle(new) &&
+                        old.documentTitle == new.documentTitle
                 }
-            }
+                .collect { state ->
+                    val isActive = state.phase != EnginePhase.IDLE && state.phase != EnginePhase.PAUSED
+                    if (isActive && !hasAudioFocus) {
+                        requestCarAudioFocus()
+                    } else if (!isActive && hasAudioFocus && !ShadowingAppContainer.engine.isPausedByAudioFocus) {
+                        abandonCarAudioFocus()
+                    }
+                    mainHandler.post {
+                        player.notifyEngineStateChanged()
+                    }
+                }
         }
     }
 
     private fun requestCarAudioFocus() {
-        val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .build()
-        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(attrs)
+        val req = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
             .setAcceptsDelayedFocusGain(true)
             .setWillPauseWhenDucked(true)
             .setOnAudioFocusChangeListener(focusChangeListener, mainHandler)
             .build()
-        audioFocusRequest = req
-        audioManager.requestAudioFocus(req)
+            .also { audioFocusRequest = it }
+
+        val res = audioManager.requestAudioFocus(req)
+        hasAudioFocus = (res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+    }
+
+    private fun abandonCarAudioFocus() {
+        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        hasAudioFocus = false
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaLibrarySession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        ShadowingAppContainer.engine.dispatch(ShadowingAction.Pause)
-        stopSelf()
+        val phase = ShadowingAppContainer.engine.uiState.value.phase
+        if (phase == EnginePhase.IDLE || phase == EnginePhase.PAUSED) {
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {
-        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        uiCollectorJob?.cancel()
+        uiCollectorJob = null
+        abandonCarAudioFocus()
         mediaLibrarySession?.run {
             player.release()
             release()
@@ -218,6 +270,38 @@ class ShadowingMediaLibraryService : MediaLibraryService() {
                     .build()
             }
             return Futures.immediateFuture(LibraryResult.ofItemList(items, params))
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>
+        ): ListenableFuture<MutableList<MediaItem>> {
+            val selectedId = mediaItems.firstOrNull()?.mediaId?.let {
+                ShadowingCarMetadataMapper.parseDocumentMediaId(it)
+            }
+            if (selectedId != null) {
+                ShadowingAppContainer.selectAndStartDocument(selectedId)
+            }
+            return Futures.immediateFuture(mediaItems)
+        }
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val selectedId = mediaItems.firstOrNull()?.mediaId?.let {
+                ShadowingCarMetadataMapper.parseDocumentMediaId(it)
+            }
+            if (selectedId != null) {
+                ShadowingAppContainer.selectAndStartDocument(selectedId)
+            }
+            return Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
+            )
         }
     }
 }

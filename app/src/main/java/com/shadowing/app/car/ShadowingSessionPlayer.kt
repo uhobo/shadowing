@@ -23,6 +23,9 @@ object ShadowingCarMetadataMapper {
         else -> null
     }
 
+    fun parseDocumentMediaId(mediaId: String): Long? =
+        if (mediaId.startsWith("doc_")) mediaId.removePrefix("doc_").toLongOrNull() else null
+
     fun toDisplayTitle(state: ShadowingUiState): String {
         if (state.phase == EnginePhase.WORD_DRILL && !state.activeDrillWord.isNullOrBlank()) {
             return "Drill: ${state.activeDrillWord}"
@@ -50,7 +53,8 @@ object ShadowingCarMetadataMapper {
 @UnstableApi
 class ShadowingSessionPlayer(
     looper: Looper,
-    private val engine: ShadowingEngine
+    private val engine: ShadowingEngine,
+    private val onSelectDocumentFromCar: (Long) -> Unit = {}
 ) : SimpleBasePlayer(looper) {
 
     fun notifyEngineStateChanged() {
@@ -65,6 +69,8 @@ class ShadowingSessionPlayer(
             .addAll(
                 Player.COMMAND_PLAY_PAUSE,
                 Player.COMMAND_STOP,
+                Player.COMMAND_SET_MEDIA_ITEM,
+                Player.COMMAND_CHANGE_MEDIA_ITEMS,
                 Player.COMMAND_SEEK_TO_NEXT,
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                 Player.COMMAND_SEEK_TO_PREVIOUS,
@@ -84,9 +90,6 @@ class ShadowingSessionPlayer(
             .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
             .build()
 
-        // Include previous, current, and next virtual items in the playlist so Android Auto
-        // always renders and enables both the Previous (|<<) and Next (>>|) buttons on screen
-        // and routes steering-wheel Next/Prev keys.
         val prevItem = MediaItemData.Builder("shadowing_prev")
             .setMediaItem(MediaItem.fromUri("shadowing://prev"))
             .setMediaMetadata(metadata)
@@ -121,6 +124,20 @@ class ShadowingSessionPlayer(
 
     override fun handleStop(): ListenableFuture<*> {
         engine.dispatch(ShadowingAction.Pause)
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleSetMediaItems(
+        mediaItems: MutableList<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long
+    ): ListenableFuture<*> {
+        val selectedId = mediaItems.firstOrNull()?.mediaId?.let {
+            ShadowingCarMetadataMapper.parseDocumentMediaId(it)
+        }
+        if (selectedId != null) {
+            onSelectDocumentFromCar(selectedId)
+        }
         return Futures.immediateVoidFuture()
     }
 

@@ -17,4 +17,10 @@ object WordRangeTracker {
             HighlightRange(match.range.first, match.range.last + 1)
         }.toList()
     }
+
+    fun estimateWordDurationMs(wordCount: Int, speechRate: Float): Long {
+        if (wordCount <= 0) return 300L
+        val safeRate = speechRate.coerceIn(0.4f, 2.0f)
+        return (360L / safeRate).toLong().coerceIn(150L, 800L)
+    }
 }

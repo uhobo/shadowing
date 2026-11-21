@@ -64,8 +64,18 @@ class SettingsRepository(
         .stateIn(scope, SharingStarted.Eagerly, ShadowingSettings())
 
     suspend fun updateSettings(transform: (ShadowingSettings) -> ShadowingSettings) {
-        val updated = transform(settingsFlow.value)
         context.dataStore.edit { prefs ->
+            val current = ShadowingSettings(
+                accuracyThreshold = prefs[Keys.ACCURACY_THRESHOLD] ?: 80,
+                speechRate = prefs[Keys.SPEECH_RATE] ?: 1.0f,
+                drillFailThreshold = prefs[Keys.DRILL_FAIL_THRESHOLD] ?: 2,
+                maxDrillAttempts = prefs[Keys.MAX_DRILL_ATTEMPTS] ?: 3,
+                drillSpeechRate = prefs[Keys.DRILL_SPEECH_RATE] ?: 0.65f,
+                azureApiKey = prefs[Keys.AZURE_API_KEY] ?: "",
+                azureRegion = prefs[Keys.AZURE_REGION] ?: "eastus",
+                useMockEvaluator = prefs[Keys.USE_MOCK_EVALUATOR] ?: true
+            )
+            val updated = transform(current)
             prefs[Keys.ACCURACY_THRESHOLD] = updated.accuracyThreshold.coerceIn(50, 98)
             prefs[Keys.SPEECH_RATE] = updated.speechRate.coerceIn(0.5f, 1.5f)
             prefs[Keys.DRILL_FAIL_THRESHOLD] = updated.drillFailThreshold.coerceIn(1, 5)

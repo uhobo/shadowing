@@ -60,4 +60,19 @@ class PronunciationEvaluatorTest {
         assertEquals("Mispronunciation", result.words[1].errorType)
         assertEquals("th", result.words[1].phonemes.first().phoneme)
     }
+
+    @Test
+    fun test_azureEvaluatorWithMockDisabledAndBlankKey_returnsFailure() = kotlinx.coroutines.test.runTest {
+        val evaluator = AzurePronunciationEvaluator(
+            httpClient = okhttp3.OkHttpClient(),
+            settingsProvider = {
+                com.shadowing.app.domain.model.ShadowingSettings(
+                    useMockEvaluator = false,
+                    azureApiKey = "   "
+                )
+            }
+        )
+        val res = evaluator.evaluate(ByteArray(44), "Hello world.")
+        assertTrue("Expected failure when Demo mode is off and Azure key is blank", res.isFailure)
+    }
 }

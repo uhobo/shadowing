@@ -31,4 +31,10 @@ class ShadowingCarMetadataMapperTest {
         assertEquals("Drill: thoroughly", ShadowingCarMetadataMapper.toDisplayTitle(drillState))
         assertEquals("68% (Goal 80%) • Slow Word Drill", ShadowingCarMetadataMapper.toDisplaySubtitle(drillState))
     }
+
+    @Test
+    fun test_parseLibraryDocumentMediaId_extractsDocumentIdForAndroidAutoSelection() {
+        assertEquals(42L, ShadowingCarMetadataMapper.parseDocumentMediaId("doc_42"))
+        assertEquals(null, ShadowingCarMetadataMapper.parseDocumentMediaId("root"))
+    }
 }

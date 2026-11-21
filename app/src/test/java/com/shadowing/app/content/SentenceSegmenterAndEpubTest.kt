@@ -19,6 +19,14 @@ class SentenceSegmenterAndEpubTest {
             ),
             sentences
         )
+
+        // Multi-digit decimals and case-insensitive abbreviations
+        val multiDecimal = "Mr. and mrs. Jones measured 123.456 meters vs. 78.90 meters today."
+        val multiResult = SentenceSegmenter.segment(multiDecimal)
+        assertEquals(
+            listOf("Mr. and mrs. Jones measured 123.456 meters vs. 78.90 meters today."),
+            multiResult
+        )
     }
 
     @Test
@@ -33,7 +41,7 @@ class SentenceSegmenterAndEpubTest {
             zip.write("""
                 <package><manifest>
                   <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
-                  <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+                  <item id="c2" href="Chapter%202.xhtml" media-type="application/xhtml+xml"/>
                 </manifest><spine>
                   <itemref idref="c1"/><itemref idref="c2"/>
                 </spine></package>
@@ -44,7 +52,7 @@ class SentenceSegmenterAndEpubTest {
             zip.write("<html><body><p>First chapter sentence today.</p></body></html>".toByteArray())
             zip.closeEntry()
 
-            zip.putNextEntry(ZipEntry("OEBPS/ch2.xhtml"))
+            zip.putNextEntry(ZipEntry("OEBPS/Chapter 2.xhtml"))
             zip.write("<html><body><p>Second chapter sentence here.</p></body></html>".toByteArray())
             zip.closeEntry()
         }

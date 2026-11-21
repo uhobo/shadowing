@@ -15,6 +15,7 @@ import org.jsoup.parser.Parser
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.net.URLDecoder
 import java.util.zip.ZipInputStream
 
 data class IngestedDocument(
@@ -70,24 +71,20 @@ class DocumentIngestor(
         val displayName = resolveDisplayName(uri) ?: "Imported Book"
         val lower = displayName.lowercase()
         val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+        val isEpub = lower.endsWith(".epub") || mime.contains("epub")
+        val isPdf = lower.endsWith(".pdf") || mime.contains("pdf")
 
         val rawText = context.contentResolver.openInputStream(uri)?.use { stream ->
             when {
-                lower.endsWith(".epub") || mime.contains("epub") -> {
-                    extractTextFromEpubStream(stream)
-                }
-                lower.endsWith(".pdf") || mime.contains("pdf") -> {
-                    extractTextFromPdfStream(stream)
-                }
-                else -> {
-                    stream.bufferedReader(Charsets.UTF_8).readText()
-                }
+                isEpub -> extractTextFromEpubStream(stream)
+                isPdf -> extractTextFromPdfStream(stream)
+                else -> stream.bufferedReader(Charsets.UTF_8).readText()
             }
         } ?: throw IOException("Unable to open selected file")
 
         val sourceType = when {
-            lower.endsWith(".epub") -> "EPUB"
-            lower.endsWith(".pdf") -> "PDF"
+            isEpub -> "EPUB"
+            isPdf -> "PDF"
             else -> "TXT"
         }
 
@@ -115,6 +112,8 @@ class DocumentIngestor(
     }
 
     companion object {
+        private val TEXT_ENTRY_EXTENSIONS = listOf(".xml", ".opf", ".xhtml", ".html", ".htm")
+
         fun extractTextFromEpubStream(inputStream: InputStream): String {
             val entries = mutableMapOf<String, ByteArray>()
             ZipInputStream(inputStream).use { zip ->
@@ -122,7 +121,9 @@ class DocumentIngestor(
                 while (entry != null) {
                     if (!entry.isDirectory) {
                         val normalizedName = entry.name.replace('\\', '/').trimStart('/')
-                        entries[normalizedName] = zip.readBytes()
+                        if (TEXT_ENTRY_EXTENSIONS.any { normalizedName.endsWith(it, ignoreCase = true) }) {
+                            entries[normalizedName] = zip.readBytes()
+                        }
                     }
                     zip.closeEntry()
                     entry = zip.nextEntry
@@ -146,9 +147,15 @@ class DocumentIngestor(
                 val spineIds = opfDoc.select("spine > itemref").map { it.attr("idref") }
 
                 val chapterTexts = spineIds.mapNotNull { id ->
-                    val href = manifestHrefById[id]?.substringBefore('#') ?: return@mapNotNull null
-                    val fullEntryPath = normalizeZipPath(opfDir + href)
-                    val htmlBytes = entries[fullEntryPath] ?: entries[href] ?: return@mapNotNull null
+                    val rawHref = manifestHrefById[id]?.substringBefore('#') ?: return@mapNotNull null
+                    val decodedHref = runCatching { URLDecoder.decode(rawHref, "UTF-8") }.getOrDefault(rawHref)
+                    val fullDecodedPath = normalizeZipPath(opfDir + decodedHref)
+                    val fullRawPath = normalizeZipPath(opfDir + rawHref)
+                    val htmlBytes = entries[fullDecodedPath]
+                        ?: entries[fullRawPath]
+                        ?: entries[decodedHref]
+                        ?: entries[rawHref]
+                        ?: return@mapNotNull null
                     val chapterDoc = Jsoup.parse(ByteArrayInputStream(htmlBytes), "UTF-8", "")
                     chapterDoc.select("script, style").remove()
                     chapterDoc.body().text().trim().takeIf { it.isNotEmpty() }
@@ -159,7 +166,6 @@ class DocumentIngestor(
                 }
             }
 
-            // Fallback: concatenate all XHTML/HTML entries in alphabetical order
             return entries.entries
                 .filter { it.key.endsWith(".xhtml", true) || it.key.endsWith(".html", true) || it.key.endsWith(".htm", true) }
                 .sortedBy { it.key }

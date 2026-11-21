@@ -5,17 +5,23 @@ import com.shadowing.app.domain.model.PronunciationResult
 import com.shadowing.app.domain.model.ShadowingSettings
 import com.shadowing.app.domain.model.WordAssessment
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.IOException
 import java.util.Base64
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.math.roundToInt
 
 interface PronunciationEvaluator {
@@ -128,8 +134,15 @@ class AzurePronunciationEvaluator(
     ): Result<PronunciationResult> = withContext(Dispatchers.IO) {
         runCatching {
             val settings = settingsProvider()
-            if (settings.useMockEvaluator || settings.azureApiKey.isBlank()) {
-                return@runCatching MockPronunciationEvaluator().evaluate(wavBytes, referenceText).getOrThrow()
+            if (settings.useMockEvaluator) {
+                val passScore = maxOf(92, settings.accuracyThreshold + 5).coerceAtMost(100)
+                return@runCatching MockPronunciationEvaluator(
+                    defaultScore = passScore,
+                    threshold = settings.accuracyThreshold
+                ).evaluate(wavBytes, referenceText).getOrThrow()
+            }
+            if (settings.azureApiKey.isBlank()) {
+                throw IllegalStateException("Azure Speech API key is required when Demo Scorer is disabled")
             }
 
             val region = settings.azureRegion.trim().ifEmpty { "eastus" }
@@ -145,20 +158,41 @@ class AzurePronunciationEvaluator(
                 .post(requestBody)
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
-                val bodyString = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    throw IOException("Azure Speech HTTP ${response.code}: $bodyString")
-                }
-                AzurePronunciationProtocol.parseResponseJson(bodyString)
-            }
+            val bodyString = executeCancellable(httpClient.newCall(request))
+            AzurePronunciationProtocol.parseResponseJson(bodyString)
         }
     }
+
+    private suspend fun executeCancellable(call: Call): String =
+        suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation {
+                runCatching { call.cancel() }
+            }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use { resp ->
+                        val body = resp.body?.string().orEmpty()
+                        if (!resp.isSuccessful) {
+                            if (cont.isActive) {
+                                cont.resumeWithException(IOException("Azure Speech HTTP ${resp.code}: $body"))
+                            }
+                        } else if (cont.isActive) {
+                            cont.resume(body)
+                        }
+                    }
+                }
+            })
+        }
 }
 
 class MockPronunciationEvaluator(
     var nextScoresByWord: Map<String, Int> = emptyMap(),
-    var defaultScore: Int = 88
+    var defaultScore: Int = 92,
+    var threshold: Int = 80
 ) : PronunciationEvaluator {
 
     override suspend fun evaluate(
@@ -172,7 +206,7 @@ class MockPronunciationEvaluator(
 
         val wordAssessments = rawTokens.map { token ->
             val lookupScore = nextScoresByWord[token.lowercase()] ?: defaultScore
-            val errorType = if (lookupScore >= 80) "None" else "Mispronunciation"
+            val errorType = if (lookupScore >= threshold) "None" else "Mispronunciation"
             WordAssessment(
                 word = token,
                 accuracyScore = lookupScore,

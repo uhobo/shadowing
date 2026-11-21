@@ -329,4 +329,196 @@ class ShadowingEngineTest {
         assertEquals(2, tts.spokenLog.count { it.first == "Navigate safely today." })
         engine.dispatch(ShadowingAction.Pause)
     }
+
+    @Test
+    fun test_sentenceContainingSameWordTwice_doesNotTriggerDrillOnSingleFailedAttempt() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val tts = FakeTts()
+        val evaluator = FakeEvaluator()
+        val settings = MutableStateFlow(ShadowingSettings(accuracyThreshold = 80, drillFailThreshold = 2))
+
+        // Single attempt where "practice" appears twice in the same sentence and both occurrences fail
+        evaluator.queuedResults.add(
+            Result.success(
+                PronunciationResult(
+                    recognizedText = "Practice makes practice better.",
+                    accuracyScore = 58,
+                    fluencyScore = 65,
+                    completenessScore = 100,
+                    words = listOf(
+                        WordAssessment("Practice", 45, "Mispronunciation"),
+                        WordAssessment("makes", 92, "None"),
+                        WordAssessment("practice", 50, "Mispronunciation"),
+                        WordAssessment("better", 90, "None")
+                    )
+                )
+            )
+        )
+
+        val secondAttemptGate = CompletableDeferred<RecordingOutcome>()
+        var callIdx = 0
+        val recorder = object : MicRecorder {
+            override suspend fun recordUtterance(trailingSilenceMs: Long, maxDurationMs: Long): RecordingOutcome {
+                callIdx++
+                return if (callIdx == 1) RecordingOutcome.Captured(ByteArray(16), 800L)
+                else secondAttemptGate.await()
+            }
+        }
+
+        val engine = ShadowingEngine(scope, tts, recorder, evaluator, settings)
+        engine.loadSession(1L, "Test Doc", listOf("Practice makes practice better."))
+        engine.dispatch(ShadowingAction.StartOrResume)
+        advanceUntilIdle()
+
+        // Must NOT be in WORD_DRILL after only 1 sentence attempt!
+        assertEquals(EnginePhase.LISTENING, engine.uiState.value.phase)
+        assertEquals(null, engine.uiState.value.activeDrillWord)
+        engine.dispatch(ShadowingAction.Pause)
+    }
+
+    @Test
+    fun test_fallbackWordRangeTracking_emitsSequentialWordRangesWhenTtsEngineOmitsOnRangeStart() = runTest {
+        val sentence = "Shadowing builds fluency."
+        val ranges = com.shadowing.app.tts.WordRangeTracker.extractWordRanges(sentence)
+        val delayPerWordMs = com.shadowing.app.tts.WordRangeTracker.estimateWordDurationMs(
+            wordCount = ranges.size,
+            speechRate = 1.0f
+        )
+        assertEquals(3, ranges.size)
+        assertTrue(delayPerWordMs in 150L..600L)
+    }
+
+    @Test
+    fun test_azureResultWithEmptyWordsOrOmittedSentenceWords_doesNotCrashOrLeaveStaleCounters() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val tts = FakeTts()
+        val evaluator = FakeEvaluator()
+        val settings = MutableStateFlow(ShadowingSettings(accuracyThreshold = 80, drillFailThreshold = 2))
+
+        // Attempt 1: "world" fails once (consecutiveWordFails["world"] = 1)
+        evaluator.queuedResults.add(
+            Result.success(
+                PronunciationResult(
+                    recognizedText = "Hello world today.",
+                    accuracyScore = 60,
+                    fluencyScore = 70,
+                    completenessScore = 100,
+                    words = listOf(
+                        WordAssessment("Hello", 90, "None"),
+                        WordAssessment("world", 40, "Mispronunciation"),
+                        WordAssessment("today", 90, "None")
+                    )
+                )
+            )
+        )
+        // Attempt 2: Azure returns empty Words list (e.g. unintelligible audio) -> must not crash or leave corrupt state
+        evaluator.queuedResults.add(
+            Result.success(
+                PronunciationResult(
+                    recognizedText = "",
+                    accuracyScore = 20,
+                    fluencyScore = 20,
+                    completenessScore = 0,
+                    words = emptyList()
+                )
+            )
+        )
+
+        val thirdAttemptGate = CompletableDeferred<RecordingOutcome>()
+        var callIdx = 0
+        val recorder = object : MicRecorder {
+            override suspend fun recordUtterance(trailingSilenceMs: Long, maxDurationMs: Long): RecordingOutcome {
+                callIdx++
+                return if (callIdx <= 2) RecordingOutcome.Captured(ByteArray(16), 800L)
+                else thirdAttemptGate.await()
+            }
+        }
+
+        val engine = ShadowingEngine(scope, tts, recorder, evaluator, settings)
+        engine.loadSession(1L, "Test Doc", listOf("Hello world today."))
+        engine.dispatch(ShadowingAction.StartOrResume)
+        advanceUntilIdle()
+
+        assertEquals(20, engine.uiState.value.lastScore)
+        assertEquals(EnginePhase.LISTENING, engine.uiState.value.phase)
+        engine.dispatch(ShadowingAction.Pause)
+    }
+
+    @Test
+    fun test_wordRangeDuringFeedbackRetry_doesNotHighlightDisplayedSentence() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val tts = FakeTts()
+        val evaluator = FakeEvaluator()
+        val settings = MutableStateFlow(ShadowingSettings(accuracyThreshold = 80))
+
+        // First attempt fails -> enters FEEDBACK_RETRY and speaks feedback
+        evaluator.queuedResults.add(
+            Result.success(
+                PronunciationResult(
+                    recognizedText = "Short text.",
+                    accuracyScore = 60,
+                    fluencyScore = 60,
+                    completenessScore = 100,
+                    words = listOf(WordAssessment("Short", 50, "Mispronunciation"))
+                )
+            )
+        )
+
+        val feedbackPauseGate = CompletableDeferred<Unit>()
+        var speakCallCount = 0
+        val rangeEmittingTts = object : SpeechSynthesizer {
+            override val activeWordRange = MutableStateFlow<HighlightRange?>(null)
+            override suspend fun speak(text: String, rate: Float) {
+                speakCallCount++
+                activeWordRange.value = HighlightRange(0, 5)
+                if (speakCallCount == 2) {
+                    // Pause while speaking feedback ("60 percent. Watch: short.")
+                    feedbackPauseGate.await()
+                }
+            }
+            override suspend fun playEarcon(type: EarconType) = Unit
+            override fun stop() { activeWordRange.value = null }
+        }
+
+        val recorder = FakeRecorder()
+        val engine = ShadowingEngine(scope, rangeEmittingTts, recorder, evaluator, settings)
+        engine.loadSession(1L, "Test Doc", listOf("Short text."))
+        engine.dispatch(ShadowingAction.StartOrResume)
+        advanceUntilIdle()
+
+        assertEquals(EnginePhase.FEEDBACK_RETRY, engine.uiState.value.phase)
+        // Must be null during FEEDBACK_RETRY so feedback words don't bold the displayed sentence!
+        assertEquals(null, engine.uiState.value.activeWordStart)
+        assertEquals(null, engine.uiState.value.activeWordEnd)
+        engine.dispatch(ShadowingAction.Pause)
+    }
+
+    @Test
+    fun test_networkFailure_retriesCapturedWavOnceThenPausesWithOfflineMessage() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val tts = FakeTts()
+        val recorder = FakeRecorder()
+        val evaluator = FakeEvaluator()
+        val settings = MutableStateFlow(ShadowingSettings(accuracyThreshold = 80))
+
+        // Both initial evaluation and the 1 automatic retry fail with network error
+        evaluator.queuedResults.add(Result.failure(java.io.IOException("Tunnel offline 1")))
+        evaluator.queuedResults.add(Result.failure(java.io.IOException("Tunnel offline 2")))
+
+        val engine = ShadowingEngine(scope, tts, recorder, evaluator, settings)
+        engine.loadSession(1L, "Test Doc", listOf("Test offline retry."))
+        engine.dispatch(ShadowingAction.StartOrResume)
+        advanceUntilIdle()
+
+        // Must have recorded only ONCE, evaluated TWICE (initial + 1 retry), spoken offline message, and entered PAUSED
+        assertEquals(1, recorder.recordCallCount)
+        assertEquals(2, evaluator.evaluatedReferences.size)
+        assertTrue(tts.spokenLog.any { it.first.contains("Connection lost, retrying", ignoreCase = true) })
+        assertTrue(tts.spokenLog.any { it.first.contains("Offline, press Next to skip or Pause", ignoreCase = true) })
+        assertEquals(EnginePhase.PAUSED, engine.uiState.value.phase)
+    }
 }

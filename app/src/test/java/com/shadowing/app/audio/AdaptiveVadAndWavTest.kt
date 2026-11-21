@@ -62,5 +62,8 @@ class AdaptiveVadAndWavTest {
 
         assertEquals(AdaptiveVadDetector.StepState.UTTERANCE_COMPLETE, state)
         assertTrue(vad.getCapturedPcm().isNotEmpty())
+        // Verify trailing silence is trimmed to at most 200ms (3200 samples) so Azure fluency score is not penalized
+        val expectedMaxSamples = (25 * 320) + (10 * 320) // 500ms speech + at most 200ms silence buffer
+        assertTrue("Expected trimmed PCM <= $expectedMaxSamples but got ${vad.getCapturedPcm().size}", vad.getCapturedPcm().size <= expectedMaxSamples)
     }
 }

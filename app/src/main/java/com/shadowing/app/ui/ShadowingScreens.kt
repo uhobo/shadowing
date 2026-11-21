@@ -3,7 +3,6 @@ package com.shadowing.app.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,12 +53,14 @@ import com.shadowing.app.domain.model.ShadowingAction
 import com.shadowing.app.domain.model.ShadowingSettings
 import com.shadowing.app.domain.model.ShadowingUiState
 import com.shadowing.app.tts.HighlightRange
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
 fun ShadowingApp(
-    onRequestMicPermission: () -> Unit
+    onExecuteAction: (ShadowingAction) -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val uiState by ShadowingAppContainer.engine.uiState.collectAsState()
@@ -100,10 +102,7 @@ fun ShadowingApp(
                 0 -> PracticeDrivingScreen(
                     uiState = uiState,
                     settings = settings,
-                    onAction = { action ->
-                        onRequestMicPermission()
-                        ShadowingAppContainer.engine.dispatch(action)
-                    },
+                    onAction = onExecuteAction,
                     onSpeechRateChange = { newRate ->
                         scope.launch {
                             ShadowingAppContainer.settingsRepository.updateSettings {
@@ -129,7 +128,9 @@ fun ShadowingApp(
                     },
                     onImportPaste = { title, text ->
                         scope.launch {
-                            val ingested = ShadowingAppContainer.ingestor.ingestRawText(title, text)
+                            val ingested = withContext(Dispatchers.Default) {
+                                ShadowingAppContainer.ingestor.ingestRawText(title, text)
+                            }
                             if (ingested.sentences.isEmpty()) {
                                 importFeedback = "No speakable sentences found."
                             } else {
@@ -275,6 +276,7 @@ fun PracticeDrivingScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -545,7 +547,18 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Word Micro-Drill Speed: ${((settings.drillSpeechRate * 100).roundToInt() / 100f)}x (after ${settings.drillFailThreshold} fails)",
+                    text = "Consecutive Word Failures Before Micro-Drill: ${settings.drillFailThreshold}",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Slider(
+                    value = settings.drillFailThreshold.toFloat(),
+                    onValueChange = { v -> onUpdateSettings { it.copy(drillFailThreshold = v.roundToInt()) } },
+                    valueRange = 1f..5f,
+                    steps = 3
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Word Micro-Drill Speed: ${((settings.drillSpeechRate * 100).roundToInt() / 100f)}x",
                     fontWeight = FontWeight.SemiBold
                 )
                 Slider(
@@ -576,6 +589,7 @@ fun SettingsScreen(
                     value = settings.azureApiKey,
                     onValueChange = { key -> onUpdateSettings { it.copy(azureApiKey = key) } },
                     label = { Text("Azure Speech Subscription Key") },
+                    visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -585,6 +599,21 @@ fun SettingsScreen(
                     label = { Text("Azure Region (e.g., eastus, westeurope)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("USB Android Auto Setup Note", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "For sideloaded debug builds, open Android Auto settings on your phone, tap Version 10 times to enable Developer Mode, open the top-right menu -> Developer settings, and enable 'Unknown sources'.",
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }

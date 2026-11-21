@@ -16,15 +16,27 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.util.UnstableApi
 import com.shadowing.app.car.ShadowingAppContainer
 import com.shadowing.app.car.ShadowingMediaLibraryService
+import com.shadowing.app.domain.model.EnginePhase
+import com.shadowing.app.domain.model.ShadowingAction
 import com.shadowing.app.ui.ShadowingApp
 import com.shadowing.app.ui.theme.ShadowingTheme
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
 
+    private var pendingActionAfterPermission: ShadowingAction? = null
+
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { _ -> }
+    ) { granted ->
+        val pending = pendingActionAfterPermission
+        pendingActionAfterPermission = null
+        if (granted && pending != null) {
+            ShadowingAppContainer.engine.dispatch(pending)
+        } else if (!granted) {
+            ShadowingAppContainer.engine.setStatusMessage("Microphone permission is required to score pronunciation.")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,20 +53,29 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     ShadowingApp(
-                        onRequestMicPermission = { ensureMicrophonePermission() }
+                        onExecuteAction = { action -> handleShadowingAction(action) }
                     )
                 }
             }
         }
     }
 
-    private fun ensureMicrophonePermission() {
-        val granted = ContextCompat.checkSelfPermission(
+    private fun handleShadowingAction(action: ShadowingAction) {
+        val currentPhase = ShadowingAppContainer.engine.uiState.value.phase
+        val needsMicToStart = action == ShadowingAction.StartOrResume ||
+            (action == ShadowingAction.TogglePause && (currentPhase == EnginePhase.IDLE || currentPhase == EnginePhase.PAUSED))
+
+        if (needsMicToStart && !hasMicrophonePermission()) {
+            pendingActionAfterPermission = ShadowingAction.StartOrResume
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        ShadowingAppContainer.engine.dispatch(action)
+    }
+
+    private fun hasMicrophonePermission(): Boolean =
+        ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
 }
