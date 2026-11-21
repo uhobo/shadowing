@@ -3,6 +3,7 @@ package com.shadowing.app.domain.model
 data class ShadowingSettings(
     val accuracyThreshold: Int = 80,
     val speechRate: Float = 1.0f,
+    val maxWordsPerSentence: Int = 14,
     val drillFailThreshold: Int = 2,
     val maxDrillAttempts: Int = 3,
     val drillSpeechRate: Float = 0.65f,

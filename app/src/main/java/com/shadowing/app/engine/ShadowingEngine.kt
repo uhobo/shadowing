@@ -31,7 +31,9 @@ class ShadowingEngine(
     private val _uiState = MutableStateFlow(ShadowingUiState())
     val uiState: StateFlow<ShadowingUiState> = _uiState.asStateFlow()
 
+    private var rawSentences: List<String> = emptyList()
     private var sentences: List<String> = emptyList()
+    private var appliedMaxWords: Int = settingsFlow.value.maxWordsPerSentence
     private var loopJob: Job? = null
     private val consecutiveWordFails = mutableMapOf<String, Int>()
     private var pendingDrillWord: String? = null
@@ -60,6 +62,24 @@ class ShadowingEngine(
         }
         scope.launch {
             settingsFlow.collect { settings ->
+                val newMaxWords = settings.maxWordsPerSentence
+                if (newMaxWords != appliedMaxWords && rawSentences.isNotEmpty()) {
+                    appliedMaxWords = newMaxWords
+                    val isIdleOrPaused = _uiState.value.phase == EnginePhase.IDLE || _uiState.value.phase == EnginePhase.PAUSED
+                    if (isIdleOrPaused) {
+                        sentences = com.shadowing.app.content.SentenceSegmenter.enforceMaxWords(rawSentences, newMaxWords)
+                        val safeIdx = if (sentences.isEmpty()) 0 else _uiState.value.currentSentenceIndex.coerceIn(0, sentences.lastIndex)
+                        _uiState.update {
+                            it.copy(
+                                accuracyThreshold = settings.accuracyThreshold,
+                                currentSentenceIndex = safeIdx,
+                                totalSentences = sentences.size,
+                                currentSentence = sentences.getOrElse(safeIdx) { "" }
+                            )
+                        }
+                        return@collect
+                    }
+                }
                 _uiState.update { it.copy(accuracyThreshold = settings.accuracyThreshold) }
             }
         }
@@ -72,20 +92,22 @@ class ShadowingEngine(
         startIndex: Int = 0
     ) {
         stopCurrentJob()
-        this.sentences = sentences
+        this.rawSentences = sentences
+        this.appliedMaxWords = settingsFlow.value.maxWordsPerSentence
+        this.sentences = com.shadowing.app.content.SentenceSegmenter.enforceMaxWords(sentences, appliedMaxWords)
         consecutiveWordFails.clear()
         pendingDrillWord = null
         isPausedByAudioFocus = false
-        val safeIndex = if (sentences.isEmpty()) 0 else startIndex.coerceIn(0, sentences.lastIndex)
+        val safeIndex = if (this.sentences.isEmpty()) 0 else startIndex.coerceIn(0, this.sentences.lastIndex)
         _uiState.value = ShadowingUiState(
             documentId = documentId,
             documentTitle = title,
             currentSentenceIndex = safeIndex,
-            totalSentences = sentences.size,
-            currentSentence = sentences.getOrElse(safeIndex) { "" },
+            totalSentences = this.sentences.size,
+            currentSentence = this.sentences.getOrElse(safeIndex) { "" },
             phase = EnginePhase.IDLE,
             accuracyThreshold = settingsFlow.value.accuracyThreshold,
-            statusMessage = if (sentences.isEmpty()) "No sentences loaded" else "Ready to practice"
+            statusMessage = if (this.sentences.isEmpty()) "No sentences loaded" else "Ready to practice"
         )
     }
 

@@ -13,8 +13,9 @@ object SentenceSegmenter {
 
     private val DECIMAL_REGEX = Regex("(\\d)\\.(\\d)")
 
-    fun segment(rawText: String, maxWordsPerChunk: Int = 28): List<String> {
+    fun segment(rawText: String, maxWordsPerChunk: Int = 14): List<String> {
         if (rawText.isBlank()) return emptyList()
+        val safeMax = maxWordsPerChunk.coerceIn(4, 50)
 
         val normalized = rawText
             .replace("\r\n", "\n")
@@ -47,13 +48,18 @@ object SentenceSegmenter {
                 .replace(DOT_TOKEN, ".")
                 .trim()
             if (isSpeakableSentence(piece)) {
-                rawSentences.addAll(splitLongSentenceIfNeeded(piece, maxWordsPerChunk))
+                rawSentences.addAll(splitLongSentenceIfNeeded(piece, safeMax))
             }
             start = end
             end = iterator.next()
         }
 
         return rawSentences
+    }
+
+    fun enforceMaxWords(sentences: List<String>, maxWords: Int): List<String> {
+        val safeMax = maxWords.coerceIn(4, 50)
+        return sentences.flatMap { splitLongSentenceIfNeeded(it, safeMax) }
     }
 
     private fun isSpeakableSentence(candidate: String): Boolean {
@@ -64,13 +70,41 @@ object SentenceSegmenter {
     }
 
     private fun splitLongSentenceIfNeeded(sentence: String, maxWords: Int): List<String> {
-        val words = sentence.split(Regex("\\s+"))
-        if (words.size <= maxWords) return listOf(sentence)
+        val words = sentence.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.size <= maxWords) return listOf(sentence.trim())
 
-        val clauses = sentence.split(Regex("(?<=[;—])\\s+"))
+        // First try splitting at clause punctuation (; — ,) and then pack/chunk to <= maxWords
+        val rawClauses = sentence.split(Regex("(?<=[;—,])\\s+"))
             .map { it.trim() }
-            .filter { isSpeakableSentence(it) }
-        if (clauses.size > 1) return clauses
+            .filter { it.isNotEmpty() }
+
+        if (rawClauses.size > 1) {
+            val packed = mutableListOf<String>()
+            var currentWords = mutableListOf<String>()
+
+            for (clause in rawClauses) {
+                val clauseWords = clause.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                if (currentWords.isNotEmpty() && currentWords.size + clauseWords.size <= maxWords) {
+                    currentWords.addAll(clauseWords)
+                } else {
+                    if (currentWords.isNotEmpty()) {
+                        packed.add(currentWords.joinToString(" "))
+                        currentWords = mutableListOf()
+                    }
+                    if (clauseWords.size <= maxWords) {
+                        currentWords.addAll(clauseWords)
+                    } else {
+                        clauseWords.chunked(maxWords).forEach { chunk ->
+                            packed.add(chunk.joinToString(" "))
+                        }
+                    }
+                }
+            }
+            if (currentWords.isNotEmpty()) {
+                packed.add(currentWords.joinToString(" "))
+            }
+            return packed.filter { it.isNotBlank() }
+        }
 
         return words.chunked(maxWords).map { it.joinToString(" ") }
     }

@@ -546,6 +546,26 @@ fun SettingsScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
+                    text = "Max Words per Sentence: ${settings.maxWordsPerSentence} words",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Automatically splits long sentences into shorter phrases so they are easy to remember while repeating.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Slider(
+                    value = settings.maxWordsPerSentence.toFloat(),
+                    onValueChange = { v ->
+                        onUpdateSettings { it.copy(maxWordsPerSentence = v.roundToInt()) }
+                    },
+                    valueRange = 5f..30f
+                )
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
                     text = "Normal TTS Playback Rate: ${((settings.speechRate * 100).roundToInt() / 100f)}x",
                     fontWeight = FontWeight.SemiBold
                 )

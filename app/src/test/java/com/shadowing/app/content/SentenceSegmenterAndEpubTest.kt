@@ -1,6 +1,7 @@
 package com.shadowing.app.content
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
@@ -27,6 +28,23 @@ class SentenceSegmenterAndEpubTest {
             listOf("Mr. and mrs. Jones measured 123.456 meters vs. 78.90 meters today."),
             multiResult
         )
+    }
+
+    @Test
+    fun test_segmenter_enforcesMaxWordsPerSentenceOnLongSentences() {
+        val longSentence = "When a particularly challenging sentence appears while you are driving on the highway, we split it into shorter pieces so it is easy to remember."
+        val chunks = SentenceSegmenter.segment(longSentence, maxWordsPerChunk = 8)
+        assertTrue("Expected multiple chunks", chunks.size >= 3)
+        for (chunk in chunks) {
+            val wordCount = chunk.split(Regex("\\s+")).size
+            assertTrue("Expected chunk '$chunk' to have <= 8 words but had $wordCount", wordCount <= 8)
+        }
+
+        val rechunked = SentenceSegmenter.enforceMaxWords(listOf(longSentence), maxWords = 6)
+        for (chunk in rechunked) {
+            val wordCount = chunk.split(Regex("\\s+")).size
+            assertTrue("Expected rechunked '$chunk' to have <= 6 words but had $wordCount", wordCount <= 6)
+        }
     }
 
     @Test
