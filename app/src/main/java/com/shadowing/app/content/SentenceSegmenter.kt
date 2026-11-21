@@ -26,8 +26,11 @@ object SentenceSegmenter {
 
         var masked = normalized
         for (abbr in ABBREVIATIONS) {
-            val replacement = abbr.replace(".", DOT_TOKEN)
-            masked = masked.replace(abbr, replacement, ignoreCase = true)
+            val stem = Regex.escape(abbr.removeSuffix("."))
+            val abbrRegex = Regex("\\b($stem)\\.", RegexOption.IGNORE_CASE)
+            masked = abbrRegex.replace(masked) { match ->
+                "${match.groupValues[1]}$DOT_TOKEN"
+            }
         }
         masked = DECIMAL_REGEX.replace(masked) { match ->
             "${match.groupValues[1]}$DOT_TOKEN${match.groupValues[2]}"
