@@ -172,16 +172,16 @@ class TtsController(context: Context) : SpeechSynthesizer {
             try {
                 when (type) {
                     EarconType.LISTEN_START -> {
-                        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP2, 160)
-                        delay(170)
+                        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+                        delay(260)
                     }
                     EarconType.CAPTURED -> {
                         toneGen.startTone(ToneGenerator.TONE_PROP_ACK, 90)
-                        delay(100)
+                        delay(150)
                     }
                     EarconType.PASS -> {
-                        toneGen.startTone(ToneGenerator.TONE_PROP_PROMPT, 200)
-                        delay(210)
+                        toneGen.startTone(ToneGenerator.TONE_PROP_PROMPT, 180)
+                        delay(240)
                     }
                 }
             } finally {

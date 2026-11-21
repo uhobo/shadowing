@@ -62,8 +62,49 @@ class AdaptiveVadAndWavTest {
 
         assertEquals(AdaptiveVadDetector.StepState.UTTERANCE_COMPLETE, state)
         assertTrue(vad.getCapturedPcm().isNotEmpty())
-        // Verify trailing silence is trimmed to at most 200ms (3200 samples) so Azure fluency score is not penalized
-        val expectedMaxSamples = (25 * 320) + (10 * 320) // 500ms speech + at most 200ms silence buffer
+        // Verify trailing silence is trimmed to at most 200ms (3200 samples) so Azure fluency score is not penalized (plus up to 6 pre-roll frames)
+        val expectedMaxSamples = (25 * 320) + (10 * 320) + (6 * 320)
         assertTrue("Expected trimmed PCM <= $expectedMaxSamples but got ${vad.getCapturedPcm().size}", vad.getCapturedPcm().size <= expectedMaxSamples)
+    }
+
+    @Test
+    fun test_briefSpeakerPopOrBreathBeforeUserSpeaks_doesNotCompletePrematurelyAndWaitsForRealSpeech() {
+        val vad = AdaptiveVadDetector(
+            sampleRate = 16000,
+            calibrationMs = 200L,
+            onsetTimeoutMs = 7000L,
+            trailingSilenceMs = 1500L,
+            maxDurationMs = 10000L,
+            minVoicedSpeechMs = 500L
+        )
+        val quietFrame = ShortArray(320) { 200 }
+        val popFrame = ShortArray(320) { 1800 }
+        val realSpeechFrame = ShortArray(320) { 2800 }
+
+        // 1. 200ms ambient calibration
+        repeat(10) { vad.processFrame(quietFrame) }
+
+        // 2. 80ms brief speaker pop / breath (4 frames) right after earcon
+        repeat(4) { vad.processFrame(popFrame) }
+
+        // 3. User takes 2 seconds of silence before starting to repeat the sentence
+        repeat(100) {
+            val step = vad.processFrame(quietFrame)
+            // MUST NOT complete prematurely on the 80ms pop!
+            assertEquals(AdaptiveVadDetector.StepState.CONTINUE, step)
+        }
+
+        // 4. Now user actually repeats the sentence (800ms = 40 frames of real speech)
+        repeat(40) {
+            assertEquals(AdaptiveVadDetector.StepState.CONTINUE, vad.processFrame(realSpeechFrame))
+        }
+
+        // 5. Trailing silence (1500ms = 75 frames) after real speech completes the utterance
+        var finalState = AdaptiveVadDetector.StepState.CONTINUE
+        repeat(75) {
+            finalState = vad.processFrame(quietFrame)
+        }
+        assertEquals(AdaptiveVadDetector.StepState.UTTERANCE_COMPLETE, finalState)
+        assertTrue("Expected at least 700ms of captured speech", vad.getCapturedDurationMs() >= 700L)
     }
 }
