@@ -65,7 +65,7 @@ class ShadowingEngine(
             settingsFlow.collect { settings ->
                 val newMaxWords = settings.maxWordsPerSentence
                 val newUseDefault = settings.useDefaultSentenceLength
-                if ((newMaxWords != appliedMaxWords || newUseDefault != appliedUseDefault) && rawSentences.isNotEmpty()) {
+                if ((newMaxWords != appliedMaxWords || newUseDefault != appliedUseDefaultLength) && rawSentences.isNotEmpty()) {
                     appliedMaxWords = newMaxWords
                     appliedUseDefaultLength = newUseDefault
                     val isIdleOrPaused = _uiState.value.phase == EnginePhase.IDLE || _uiState.value.phase == EnginePhase.PAUSED
