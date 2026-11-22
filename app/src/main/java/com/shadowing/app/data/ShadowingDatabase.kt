@@ -40,6 +40,7 @@ class SettingsRepository(
     private object Keys {
         val ACCURACY_THRESHOLD = intPreferencesKey("accuracy_threshold")
         val SPEECH_RATE = floatPreferencesKey("speech_rate")
+        val USE_DEFAULT_SENTENCE_LENGTH = booleanPreferencesKey("use_default_sentence_length")
         val MAX_WORDS_PER_SENTENCE = intPreferencesKey("max_words_per_sentence")
         val DRILL_FAIL_THRESHOLD = intPreferencesKey("drill_fail_threshold")
         val MAX_DRILL_ATTEMPTS = intPreferencesKey("max_drill_attempts")
@@ -54,7 +55,8 @@ class SettingsRepository(
             ShadowingSettings(
                 accuracyThreshold = prefs[Keys.ACCURACY_THRESHOLD] ?: 80,
                 speechRate = prefs[Keys.SPEECH_RATE] ?: 1.0f,
-                maxWordsPerSentence = prefs[Keys.MAX_WORDS_PER_SENTENCE] ?: 14,
+                useDefaultSentenceLength = prefs[Keys.USE_DEFAULT_SENTENCE_LENGTH] ?: true,
+                maxWordsPerSentence = prefs[Keys.MAX_WORDS_PER_SENTENCE] ?: 28,
                 drillFailThreshold = prefs[Keys.DRILL_FAIL_THRESHOLD] ?: 2,
                 maxDrillAttempts = prefs[Keys.MAX_DRILL_ATTEMPTS] ?: 3,
                 drillSpeechRate = prefs[Keys.DRILL_SPEECH_RATE] ?: 0.65f,
@@ -70,7 +72,8 @@ class SettingsRepository(
             val current = ShadowingSettings(
                 accuracyThreshold = prefs[Keys.ACCURACY_THRESHOLD] ?: 80,
                 speechRate = prefs[Keys.SPEECH_RATE] ?: 1.0f,
-                maxWordsPerSentence = prefs[Keys.MAX_WORDS_PER_SENTENCE] ?: 14,
+                useDefaultSentenceLength = prefs[Keys.USE_DEFAULT_SENTENCE_LENGTH] ?: true,
+                maxWordsPerSentence = prefs[Keys.MAX_WORDS_PER_SENTENCE] ?: 28,
                 drillFailThreshold = prefs[Keys.DRILL_FAIL_THRESHOLD] ?: 2,
                 maxDrillAttempts = prefs[Keys.MAX_DRILL_ATTEMPTS] ?: 3,
                 drillSpeechRate = prefs[Keys.DRILL_SPEECH_RATE] ?: 0.65f,
@@ -81,6 +84,7 @@ class SettingsRepository(
             val updated = transform(current)
             prefs[Keys.ACCURACY_THRESHOLD] = updated.accuracyThreshold.coerceIn(50, 98)
             prefs[Keys.SPEECH_RATE] = updated.speechRate.coerceIn(0.5f, 1.5f)
+            prefs[Keys.USE_DEFAULT_SENTENCE_LENGTH] = updated.useDefaultSentenceLength
             prefs[Keys.MAX_WORDS_PER_SENTENCE] = updated.maxWordsPerSentence.coerceIn(5, 30)
             prefs[Keys.DRILL_FAIL_THRESHOLD] = updated.drillFailThreshold.coerceIn(1, 5)
             prefs[Keys.MAX_DRILL_ATTEMPTS] = updated.maxDrillAttempts.coerceIn(1, 5)

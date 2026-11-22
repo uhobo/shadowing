@@ -40,11 +40,15 @@ class SentenceSegmenterAndEpubTest {
             assertTrue("Expected chunk '$chunk' to have <= 8 words but had $wordCount", wordCount <= 8)
         }
 
-        val rechunked = SentenceSegmenter.enforceMaxWords(listOf(longSentence), maxWords = 6)
+        val rechunked = SentenceSegmenter.enforceMaxWords(listOf(longSentence), maxWords = 6, useDefaultFullSentences = false)
         for (chunk in rechunked) {
             val wordCount = chunk.split(Regex("\\s+")).size
             assertTrue("Expected rechunked '$chunk' to have <= 6 words but had $wordCount", wordCount <= 6)
         }
+
+        // When useDefaultFullSentences = true (the original 28-word default), keep full sentence intact
+        val defaultPreserved = SentenceSegmenter.enforceMaxWords(listOf(longSentence), maxWords = 6, useDefaultFullSentences = true)
+        assertEquals(listOf(longSentence), defaultPreserved)
     }
 
     @Test

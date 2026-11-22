@@ -544,22 +544,53 @@ fun SettingsScreen(
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "Max Words per Sentence: ${settings.maxWordsPerSentence} words",
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Automatically splits long sentences into shorter phrases so they are easy to remember while repeating.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Slider(
-                    value = settings.maxWordsPerSentence.toFloat(),
-                    onValueChange = { v ->
-                        onUpdateSettings { it.copy(maxWordsPerSentence = v.roundToInt()) }
-                    },
-                    valueRange = 5f..30f
-                )
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Use Default Sentence Length (Full Sentences • 28 words)",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Keeps complete natural sentences up to 28 words intact. Turn OFF to set a shorter custom word limit.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = settings.useDefaultSentenceLength,
+                        onCheckedChange = { useDefault ->
+                            onUpdateSettings {
+                                it.copy(
+                                    useDefaultSentenceLength = useDefault,
+                                    maxWordsPerSentence = if (useDefault) 28 else if (it.maxWordsPerSentence == 28) 12 else it.maxWordsPerSentence
+                                )
+                            }
+                        }
+                    )
+                }
+
+                if (!settings.useDefaultSentenceLength) {
+                    Text(
+                        text = "Custom Max Words per Sentence: ${settings.maxWordsPerSentence} words",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Slider(
+                        value = settings.maxWordsPerSentence.toFloat(),
+                        onValueChange = { v ->
+                            onUpdateSettings {
+                                it.copy(
+                                    useDefaultSentenceLength = false,
+                                    maxWordsPerSentence = v.roundToInt()
+                                )
+                            }
+                        },
+                        valueRange = 5f..30f
+                    )
+                }
             }
         }
 

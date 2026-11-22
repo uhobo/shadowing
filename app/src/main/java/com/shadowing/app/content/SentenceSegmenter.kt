@@ -13,7 +13,9 @@ object SentenceSegmenter {
 
     private val DECIMAL_REGEX = Regex("(\\d)\\.(\\d)")
 
-    fun segment(rawText: String, maxWordsPerChunk: Int = 14): List<String> {
+    const val DEFAULT_MAX_WORDS_PER_SENTENCE = 28
+
+    fun segment(rawText: String, maxWordsPerChunk: Int = DEFAULT_MAX_WORDS_PER_SENTENCE): List<String> {
         if (rawText.isBlank()) return emptyList()
         val safeMax = maxWordsPerChunk.coerceIn(4, 50)
 
@@ -57,9 +59,26 @@ object SentenceSegmenter {
         return rawSentences
     }
 
-    fun enforceMaxWords(sentences: List<String>, maxWords: Int): List<String> {
+    fun enforceMaxWords(
+        sentences: List<String>,
+        maxWords: Int,
+        useDefaultFullSentences: Boolean = false
+    ): List<String> {
+        if (useDefaultFullSentences) {
+            return sentences.flatMap { splitDefaultFullSentence(it, DEFAULT_MAX_WORDS_PER_SENTENCE) }
+        }
         val safeMax = maxWords.coerceIn(4, 50)
         return sentences.flatMap { splitLongSentenceIfNeeded(it, safeMax) }
+    }
+
+    private fun splitDefaultFullSentence(sentence: String, maxWords: Int): List<String> {
+        val words = sentence.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.size <= maxWords) return listOf(sentence.trim())
+        val clauses = sentence.split(Regex("(?<=[;—])\\s+"))
+            .map { it.trim() }
+            .filter { isSpeakableSentence(it) }
+        if (clauses.size > 1) return clauses
+        return words.chunked(maxWords).map { it.joinToString(" ") }
     }
 
     private fun isSpeakableSentence(candidate: String): Boolean {

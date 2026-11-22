@@ -34,6 +34,7 @@ class ShadowingEngine(
     private var rawSentences: List<String> = emptyList()
     private var sentences: List<String> = emptyList()
     private var appliedMaxWords: Int = settingsFlow.value.maxWordsPerSentence
+    private var appliedUseDefaultLength: Boolean = settingsFlow.value.useDefaultSentenceLength
     private var loopJob: Job? = null
     private val consecutiveWordFails = mutableMapOf<String, Int>()
     private var pendingDrillWord: String? = null
@@ -63,11 +64,17 @@ class ShadowingEngine(
         scope.launch {
             settingsFlow.collect { settings ->
                 val newMaxWords = settings.maxWordsPerSentence
-                if (newMaxWords != appliedMaxWords && rawSentences.isNotEmpty()) {
+                val newUseDefault = settings.useDefaultSentenceLength
+                if ((newMaxWords != appliedMaxWords || newUseDefault != appliedUseDefault) && rawSentences.isNotEmpty()) {
                     appliedMaxWords = newMaxWords
+                    appliedUseDefaultLength = newUseDefault
                     val isIdleOrPaused = _uiState.value.phase == EnginePhase.IDLE || _uiState.value.phase == EnginePhase.PAUSED
                     if (isIdleOrPaused) {
-                        sentences = com.shadowing.app.content.SentenceSegmenter.enforceMaxWords(rawSentences, newMaxWords)
+                        sentences = com.shadowing.app.content.SentenceSegmenter.enforceMaxWords(
+                            sentences = rawSentences,
+                            maxWords = newMaxWords,
+                            useDefaultFullSentences = newUseDefault
+                        )
                         val safeIdx = if (sentences.isEmpty()) 0 else _uiState.value.currentSentenceIndex.coerceIn(0, sentences.lastIndex)
                         _uiState.update {
                             it.copy(
@@ -94,7 +101,12 @@ class ShadowingEngine(
         stopCurrentJob()
         this.rawSentences = sentences
         this.appliedMaxWords = settingsFlow.value.maxWordsPerSentence
-        this.sentences = com.shadowing.app.content.SentenceSegmenter.enforceMaxWords(sentences, appliedMaxWords)
+        this.appliedUseDefaultLength = settingsFlow.value.useDefaultSentenceLength
+        this.sentences = com.shadowing.app.content.SentenceSegmenter.enforceMaxWords(
+            sentences = sentences,
+            maxWords = appliedMaxWords,
+            useDefaultFullSentences = appliedUseDefaultLength
+        )
         consecutiveWordFails.clear()
         pendingDrillWord = null
         isPausedByAudioFocus = false
