@@ -52,6 +52,20 @@ class SentenceSegmenterAndEpubTest {
     }
 
     @Test
+    fun test_enforceMaxWords_oneWordMode_splitsIntoCleanSingleWords() {
+        val input = listOf("Focus on matching, rhythm — and stress!")
+        val words = SentenceSegmenter.enforceMaxWords(
+            sentences = input,
+            maxWords = 1,
+            useDefaultFullSentences = false
+        )
+        assertEquals(
+            listOf("Focus", "on", "matching", "rhythm", "and", "stress"),
+            words
+        )
+    }
+
+    @Test
     fun test_parseEpubBytes_extractsChaptersInSpineOrder() {
         val baos = ByteArrayOutputStream()
         ZipOutputStream(baos).use { zip ->

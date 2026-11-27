@@ -59,8 +59,8 @@ class PhoneMicRecorder(
                 return@withContext RecordingOutcome.NoSpeechDetected
             }
 
-            // Require at least 500ms of voiced speech for full sentences, or 220ms for single-word drills
-            val minVoicedMs = if (trailingSilenceMs <= 900L) 220L else 500L
+            // Require at least 500ms of voiced speech for full sentences, or 150ms for single-word / 2-word prompts & drills
+            val minVoicedMs = if (trailingSilenceMs <= 950L) 150L else 500L
             val vad = AdaptiveVadDetector(
                 sampleRate = sampleRate,
                 calibrationMs = 200L,

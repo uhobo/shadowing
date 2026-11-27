@@ -521,4 +521,46 @@ class ShadowingEngineTest {
         assertTrue(tts.spokenLog.any { it.first.contains("Offline, press Next to skip or Pause", ignoreCase = true) })
         assertEquals(EnginePhase.PAUSED, engine.uiState.value.phase)
     }
+
+    @Test
+    fun test_oneWordPerTimeSetting_usesSingleWordTrailingSilenceAndAdvancesWordByWord() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val tts = FakeTts()
+        val evaluator = FakeEvaluator()
+        val settings = MutableStateFlow(
+            ShadowingSettings(
+                accuracyThreshold = 80,
+                useDefaultSentenceLength = false,
+                maxWordsPerSentence = 1
+            )
+        )
+
+        val observedTrailingSilences = mutableListOf<Long>()
+        val secondWordGate = CompletableDeferred<RecordingOutcome>()
+        var callIdx = 0
+        val recorder = object : MicRecorder {
+            override suspend fun recordUtterance(trailingSilenceMs: Long, maxDurationMs: Long): RecordingOutcome {
+                callIdx++
+                observedTrailingSilences.add(trailingSilenceMs)
+                return if (callIdx == 1) RecordingOutcome.Captured(ByteArray(16), 300L)
+                else secondWordGate.await()
+            }
+        }
+
+        val engine = ShadowingEngine(scope, tts, recorder, evaluator, settings)
+        engine.loadSession(1L, "Test Doc", listOf("Practice clear speech."))
+
+        assertEquals(3, engine.uiState.value.totalSentences)
+        assertEquals("Practice", engine.uiState.value.currentSentence)
+
+        engine.dispatch(ShadowingAction.StartOrResume)
+        advanceUntilIdle()
+
+        // First word passed -> advanced to second word "clear", and used <= 950ms trailing silence for single-word capture
+        assertEquals(1, engine.uiState.value.currentSentenceIndex)
+        assertEquals("clear", engine.uiState.value.currentSentence)
+        assertTrue("Expected short single-word trailing silence <= 950ms, got $observedTrailingSilences", observedTrailingSilences.first() <= 950L)
+        engine.dispatch(ShadowingAction.Pause)
+    }
 }

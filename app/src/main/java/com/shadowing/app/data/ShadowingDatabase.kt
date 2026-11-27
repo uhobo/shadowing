@@ -85,7 +85,7 @@ class SettingsRepository(
             prefs[Keys.ACCURACY_THRESHOLD] = updated.accuracyThreshold.coerceIn(50, 98)
             prefs[Keys.SPEECH_RATE] = updated.speechRate.coerceIn(0.5f, 1.5f)
             prefs[Keys.USE_DEFAULT_SENTENCE_LENGTH] = updated.useDefaultSentenceLength
-            prefs[Keys.MAX_WORDS_PER_SENTENCE] = updated.maxWordsPerSentence.coerceIn(5, 30)
+            prefs[Keys.MAX_WORDS_PER_SENTENCE] = updated.maxWordsPerSentence.coerceIn(1, 30)
             prefs[Keys.DRILL_FAIL_THRESHOLD] = updated.drillFailThreshold.coerceIn(1, 5)
             prefs[Keys.MAX_DRILL_ATTEMPTS] = updated.maxDrillAttempts.coerceIn(1, 5)
             prefs[Keys.DRILL_SPEECH_RATE] = updated.drillSpeechRate.coerceIn(0.4f, 1.0f)

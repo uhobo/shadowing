@@ -330,12 +330,14 @@ class ShadowingEngine(
                 )
             }
 
-            val wordCount = sentence.split(Regex("\\s+")).size
+            val wordCount = sentence.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
             val safeRate = settings.speechRate.coerceIn(0.5f, 1.5f)
             val estimatedTtsMs = ((wordCount * 450L) / safeRate).toLong()
-            val maxRecordMs = maxOf(8000L, estimatedTtsMs * 2L + 3000L)
+            val isShortWordTurn = wordCount <= 2
+            val trailingSilenceMs = if (isShortWordTurn) 900L else 1600L
+            val maxRecordMs = if (isShortWordTurn) 5000L else maxOf(8000L, estimatedTtsMs * 2L + 3000L)
             val recording = recorder.recordUtterance(
-                trailingSilenceMs = 1600L,
+                trailingSilenceMs = trailingSilenceMs,
                 maxDurationMs = maxRecordMs
             )
             if (!isActive) break

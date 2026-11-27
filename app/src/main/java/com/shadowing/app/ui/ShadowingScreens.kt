@@ -573,9 +573,47 @@ fun SettingsScreen(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isOneWordMode = !settings.useDefaultSentenceLength && settings.maxWordsPerSentence == 1
+                    OutlinedButton(
+                        onClick = {
+                            onUpdateSettings {
+                                it.copy(
+                                    useDefaultSentenceLength = false,
+                                    maxWordsPerSentence = 1
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (isOneWordMode) "✅ 1 Word at a Time" else "🔤 1 Word at a Time")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            onUpdateSettings {
+                                it.copy(
+                                    useDefaultSentenceLength = true,
+                                    maxWordsPerSentence = 28
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (settings.useDefaultSentenceLength) "✅ Default (28)" else "Full Sentences")
+                    }
+                }
+
                 if (!settings.useDefaultSentenceLength) {
+                    val wordsLabel = if (settings.maxWordsPerSentence == 1) {
+                        "Word-by-Word Mode: 1 word at a time"
+                    } else {
+                        "Custom Max Words per Sentence: ${settings.maxWordsPerSentence} words"
+                    }
                     Text(
-                        text = "Custom Max Words per Sentence: ${settings.maxWordsPerSentence} words",
+                        text = wordsLabel,
                         fontWeight = FontWeight.SemiBold
                     )
                     Slider(
@@ -588,7 +626,7 @@ fun SettingsScreen(
                                 )
                             }
                         },
-                        valueRange = 5f..30f
+                        valueRange = 1f..30f
                     )
                 }
             }

@@ -17,7 +17,7 @@ object SentenceSegmenter {
 
     fun segment(rawText: String, maxWordsPerChunk: Int = DEFAULT_MAX_WORDS_PER_SENTENCE): List<String> {
         if (rawText.isBlank()) return emptyList()
-        val safeMax = maxWordsPerChunk.coerceIn(4, 50)
+        val safeMax = maxWordsPerChunk.coerceIn(1, 50)
 
         val normalized = rawText
             .replace("\r\n", "\n")
@@ -49,7 +49,7 @@ object SentenceSegmenter {
             val piece = masked.substring(start, end)
                 .replace(DOT_TOKEN, ".")
                 .trim()
-            if (isSpeakableSentence(piece)) {
+            if (isSpeakableSentence(piece, minAlphaWords = if (safeMax == 1) 1 else 2)) {
                 rawSentences.addAll(splitLongSentenceIfNeeded(piece, safeMax))
             }
             start = end
@@ -67,7 +67,7 @@ object SentenceSegmenter {
         if (useDefaultFullSentences) {
             return sentences.flatMap { splitDefaultFullSentence(it, DEFAULT_MAX_WORDS_PER_SENTENCE) }
         }
-        val safeMax = maxWords.coerceIn(4, 50)
+        val safeMax = maxWords.coerceIn(1, 50)
         return sentences.flatMap { splitLongSentenceIfNeeded(it, safeMax) }
     }
 
@@ -81,14 +81,21 @@ object SentenceSegmenter {
         return words.chunked(maxWords).map { it.joinToString(" ") }
     }
 
-    private fun isSpeakableSentence(candidate: String): Boolean {
+    private fun isSpeakableSentence(candidate: String, minAlphaWords: Int = 2): Boolean {
         val alphaWords = candidate.split(Regex("\\s+")).count { token ->
             token.any { it.isLetter() }
         }
-        return alphaWords >= 2
+        return alphaWords >= minAlphaWords
     }
 
     private fun splitLongSentenceIfNeeded(sentence: String, maxWords: Int): List<String> {
+        if (maxWords == 1) {
+            return sentence.trim()
+                .split(Regex("\\s+"))
+                .map { token -> token.trim { ch -> !ch.isLetterOrDigit() && ch != '\'' && ch != '-' } }
+                .filter { token -> token.any { it.isLetterOrDigit() } }
+        }
+
         val words = sentence.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.size <= maxWords) return listOf(sentence.trim())
 
